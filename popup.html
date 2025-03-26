@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>文本分割助手设置</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <div class="container">
+    <h1>文本分割助手</h1>
+    
+    <div class="settings-group">
+      <h3>默认设置</h3>
+      
+      <div class="setting-item">
+        <label for="default-max-length">默认最大段落长度:</label>
+        <input type="number" id="default-max-length" value="2000" min="100" max="10000">
+      </div>
+      
+      <div class="setting-item">
+        <label for="default-split-pattern">默认分割规则:</label>
+        <select id="default-split-pattern">
+          <option value="[。！？\\n]">句号/感叹号/问号</option>
+          <option value="[。\\n]">仅句号</option>
+          <option value="[\\n]">仅换行</option>
+          <option value="custom">自定义</option>
+        </select>
+        <input type="text" id="custom-split-pattern" placeholder="输入自定义正则表达式" style="display: none;">
+      </div>
+    </div>
+    
+    <div class="settings-group">
+      <h3>网站特定设置</h3>
+      <div id="site-settings"></div>
+    </div>
+    
+    <button id="save-settings">保存设置</button>
+    <div id="status-message"></div>
+  </div>
+  
+  <script src="popup.js"></script>
+</body>
+</html>
