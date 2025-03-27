@@ -1,28 +1,29 @@
 {
   "manifest_version": 3,
-  "name": "智能文本分割助手",
-  "version": "1.0",
+  "name": "智能文本分割助手 Pro",
+  "version": "2.0",
   "description": "自动分割长文本并逐步填充到输入框（支持多种AI聊天网站）",
   "icons": {
     "48": "icons/icon48.png",
     "128": "icons/icon128.png"
   },
-  "permissions": ["activeTab", "storage"],
+  "permissions": ["activeTab", "storage", "scripting"],
   "action": {
-    "default_popup": "popup/popup.html",
+    "default_popup": "popup.html",
     "default_icon": "icons/icon.png"
   },
   "content_scripts": [
     {
-      "matches": [
-        "https://chatgpt.com/*",
-        "https://claude.ai/*",
-        "https://gemini.google.com/*"
-      ],
-      "js": ["content.js"]
+      "matches": ["<all_urls>"],
+      "js": ["content.js"],
+      "run_at": "document_end"
     }
   ],
   "background": {
     "service_worker": "background.js"
-  }
+  },
+  "web_accessible_resources": [{
+    "resources": ["icons/copy-icon.svg"],
+    "matches": ["<all_urls>"]
+  }]
 }

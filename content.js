@@ -2,6 +2,8 @@ class TextSegmenter {
   constructor() {
     this.segments = [];
     this.currentSegmentIndex = 0;
+    this.promptTemplate = '';
+    this.autoSendInterval = null;
   }
 
   segment(text, options = {}) {
@@ -57,6 +59,37 @@ class TextSegmenter {
   getAllSegments() {
     return this.segments;
   }
+
+  setPromptTemplate(template) {
+    this.promptTemplate = template;
+  }
+
+  getNextSegmentWithPrompt() {
+    const segment = this.getNextSegment();
+    if (!segment) return null;
+    
+    return {
+      ...segment,
+      content: this.promptTemplate + segment.content
+    };
+  }
+
+  startAutoSend(callback, interval = 3000) {
+    this.stopAutoSend();
+    this.autoSendInterval = setInterval(() => {
+      const hasMore = callback();
+      if (!hasMore) {
+        this.stopAutoSend();
+      }
+    }, interval);
+  }
+
+  stopAutoSend() {
+    if (this.autoSendInterval) {
+      clearInterval(this.autoSendInterval);
+      this.autoSendInterval = null;
+    }
+  }
 }
 
 function createFloatingUI() {
@@ -66,20 +99,65 @@ function createFloatingUI() {
   container.style.bottom = '20px';
   container.style.right = '20px';
   container.style.zIndex = '10000';
+  container.style.display = 'flex';
+  container.style.gap = '10px';
+  container.style.alignItems = 'flex-end';
 
-  const toggleButton = document.createElement('button');
-  toggleButton.id = 'text-segmenter-toggle';
-  toggleButton.innerHTML = '✂️';
-  toggleButton.style.width = '50px';
-  toggleButton.style.height = '50px';
-  toggleButton.style.borderRadius = '50%';
-  toggleButton.style.backgroundColor = '#4CAF50';
-  toggleButton.style.color = 'white';
-  toggleButton.style.border = 'none';
-  toggleButton.style.cursor = 'pointer';
-  toggleButton.style.boxShadow = '0 4px 6px rgba(0,0,0,0.1)';
-  toggleButton.style.fontSize = '20px';
-  toggleButton.style.transition = 'all 0.3s ease';
+  const mainButton = document.createElement('button');
+  mainButton.id = 'text-segmenter-toggle';
+  mainButton.innerHTML = '✂️';
+  mainButton.style.width = '50px';
+  mainButton.style.height = '50px';
+  mainButton.style.borderRadius = '50%';
+  mainButton.style.backgroundColor = '#4CAF50';
+  mainButton.style.color = 'white';
+  mainButton.style.border = 'none';
+  mainButton.style.cursor = 'pointer';
+  mainButton.style.boxShadow = '0 4px 6px rgba(0,0,0,0.1)';
+  mainButton.style.fontSize = '20px';
+  mainButton.style.transition = 'all 0.3s ease';
+
+  const autoFillButton = document.createElement('button');
+  autoFillButton.id = 'text-segmenter-autofill';
+  autoFillButton.innerHTML = '⏩';
+  autoFillButton.style.width = '40px';
+  autoFillButton.style.height = '40px';
+  autoFillButton.style.borderRadius = '50%';
+  autoFillButton.style.backgroundColor = '#9C27B0';
+  autoFillButton.style.color = 'white';
+  autoFillButton.style.border = 'none';
+  autoFillButton.style.cursor = 'pointer';
+  autoFillButton.style.boxShadow = '0 4px 6px rgba(0,0,0,0.1)';
+  autoFillButton.style.display = 'none';
+  autoFillButton.title = '自动填充下一段';
+
+  const copyButton = document.createElement('button');
+  copyButton.id = 'text-segmenter-copy';
+  copyButton.innerHTML = '📋';
+  copyButton.style.width = '40px';
+  copyButton.style.height = '40px';
+  copyButton.style.borderRadius = '50%';
+  copyButton.style.backgroundColor = '#2196F3';
+  copyButton.style.color = 'white';
+  copyButton.style.border = 'none';
+  copyButton.style.cursor = 'pointer';
+  copyButton.style.boxShadow = '0 4px 6px rgba(0,0,0,0.1)';
+  copyButton.style.display = 'none';
+  copyButton.title = '复制下一段';
+
+  const autoSendButton = document.createElement('button');
+  autoSendButton.id = 'text-segmenter-autosend';
+  autoSendButton.innerHTML = '⏱️';
+  autoSendButton.style.width = '40px';
+  autoSendButton.style.height = '40px';
+  autoSendButton.style.borderRadius = '50%';
+  autoSendButton.style.backgroundColor = '#FF9800';
+  autoSendButton.style.color = 'white';
+  autoSendButton.style.border = 'none';
+  autoSendButton.style.cursor = 'pointer';
+  autoSendButton.style.boxShadow = '0 4px 6px rgba(0,0,0,0.1)';
+  autoSendButton.style.display = 'none';
+  autoSendButton.title = '定时自动发送';
 
   const panel = document.createElement('div');
   panel.id = 'text-segmenter-panel';
@@ -87,27 +165,36 @@ function createFloatingUI() {
   panel.style.position = 'absolute';
   panel.style.bottom = '60px';
   panel.style.right = '0';
-  panel.style.width = '350px';
+  panel.style.width = '400px';
   panel.style.backgroundColor = 'white';
   panel.style.border = '1px solid #ddd';
   panel.style.borderRadius = '8px';
   panel.style.padding = '15px';
   panel.style.boxShadow = '0 4px 6px rgba(0,0,0,0.2)';
 
-  container.appendChild(toggleButton);
   container.appendChild(panel);
+  container.appendChild(mainButton);
+  container.appendChild(autoFillButton);
+  container.appendChild(copyButton);
+  container.appendChild(autoSendButton);
   document.body.appendChild(container);
 
-  return { toggleButton, panel };
+  return { mainButton, autoFillButton, copyButton, autoSendButton, panel };
 }
 
-function initContentScript() {
+async function initContentScript() {
   const segmenter = new TextSegmenter();
-  const { toggleButton, panel } = createFloatingUI();
+  const { mainButton, autoFillButton, copyButton, autoSendButton, panel } = createFloatingUI();
+  const currentHostname = window.location.hostname;
+
+  // 获取设置
+  const settings = await new Promise(resolve => {
+    chrome.storage.sync.get(['settings', 'siteSettings'], resolve);
+  });
 
   // 创建面板内容
   const title = document.createElement('h3');
-  title.textContent = '文本分割工具';
+  title.textContent = '文本分割工具 - ' + currentHostname;
   title.style.marginTop = '0';
 
   const inputTextarea = document.createElement('textarea');
@@ -120,15 +207,17 @@ function initContentScript() {
   const settingsSection = document.createElement('div');
   settingsSection.style.marginBottom = '10px';
 
+  // 最大长度设置
   const maxLengthLabel = document.createElement('label');
   maxLengthLabel.textContent = '最大段落长度: ';
   maxLengthLabel.style.marginRight = '10px';
 
   const maxLengthInput = document.createElement('input');
   maxLengthInput.type = 'number';
-  maxLengthInput.value = '2000';
+  maxLengthInput.value = settings.settings?.defaultMaxLength || '2000';
   maxLengthInput.style.width = '80px';
 
+  // 分割规则设置
   const splitPatternLabel = document.createElement('label');
   splitPatternLabel.textContent = '分割规则: ';
   splitPatternLabel.style.marginRight = '10px';
@@ -158,11 +247,33 @@ function initContentScript() {
   customPatternInput.style.marginTop = '5px';
   customPatternInput.style.display = 'none';
 
+  // 定时发送间隔设置
+  const autoSendLabel = document.createElement('label');
+  autoSendLabel.textContent = '定时发送间隔(毫秒): ';
+  autoSendLabel.style.marginRight = '10px';
+  autoSendLabel.style.marginTop = '10px';
+  autoSendLabel.style.display = 'block';
+
+  const autoSendInput = document.createElement('input');
+  autoSendInput.type = 'number';
+  autoSendInput.value = '3000';
+  autoSendInput.style.width = '100px';
+  autoSendInput.style.marginBottom = '10px';
+
+  // 初始化分割规则
+  if (settings.settings?.defaultSplitPattern?.custom) {
+    splitPatternSelect.value = 'custom';
+    customPatternInput.value = settings.settings.defaultSplitPattern.value;
+    customPatternInput.style.display = 'block';
+  } else if (settings.settings?.defaultSplitPattern) {
+    splitPatternSelect.value = settings.settings.defaultSplitPattern.value;
+  }
+
   splitPatternSelect.addEventListener('change', (e) => {
     customPatternInput.style.display = e.target.value === 'custom' ? 'block' : 'none';
   });
 
-  // 自定义输入框选择器
+  // 目标输入框选择器
   const customTargetLabel = document.createElement('label');
   customTargetLabel.textContent = '目标输入框选择器: ';
   customTargetLabel.style.marginRight = '10px';
@@ -171,44 +282,54 @@ function initContentScript() {
 
   const customTargetInput = document.createElement('input');
   customTargetInput.type = 'text';
-  customTargetInput.placeholder = '例如: .chat-input, #prompt-textarea';
+  customTargetInput.placeholder = '例如: .ql-editor, [contenteditable]';
   customTargetInput.style.width = '100%';
   customTargetInput.style.marginBottom = '10px';
 
-  // 保存选择器按钮
-  const saveSelectorButton = document.createElement('button');
-  saveSelectorButton.textContent = '保存选择器';
-  saveSelectorButton.style.width = '100%';
-  saveSelectorButton.style.padding = '5px';
-  saveSelectorButton.style.backgroundColor = '#9C27B0';
-  saveSelectorButton.style.color = 'white';
-  saveSelectorButton.style.border = 'none';
-  saveSelectorButton.style.borderRadius = '4px';
-  saveSelectorButton.style.cursor = 'pointer';
-  saveSelectorButton.style.marginBottom = '10px';
+  // 为 Google Gemini 设置默认选择器
+  if (currentHostname.includes('gemini.google.com')) {
+    customTargetInput.value = '.ql-editor, [contenteditable]';
+  }
 
-  // 常用选择器建议
-  const selectorSuggestions = document.createElement('div');
-  selectorSuggestions.style.marginBottom = '10px';
-  selectorSuggestions.innerHTML = `
-    <div style="font-size:12px; color:#666;">常用选择器建议:</div>
-    <div style="display: flex; flex-wrap: wrap; gap: 5px; margin-top: 5px;">
-      <button class="selector-suggestion" data-selector="textarea" style="padding: 3px 5px; font-size:11px; background:#f0f0f0; border:1px solid #ddd; border-radius:3px; cursor:pointer;">textarea</button>
-      <button class="selector-suggestion" data-selector="[contenteditable=true]" style="padding: 3px 5px; font-size:11px; background:#f0f0f0; border:1px solid #ddd; border-radius:3px; cursor:pointer;">[contenteditable]</button>
-      <button class="selector-suggestion" data-selector=".chat-input" style="padding: 3px 5px; font-size:11px; background:#f0f0f0; border:1px solid #ddd; border-radius:3px; cursor:pointer;">.chat-input</button>
-      <button class="selector-suggestion" data-selector="#prompt-textarea" style="padding: 3px 5px; font-size:11px; background:#f0f0f0; border:1px solid #ddd; border-radius:3px; cursor:pointer;">#prompt-textarea</button>
-    </div>
-  `;
+  // 提示词模板
+  const promptLabel = document.createElement('label');
+  promptLabel.textContent = '提示词模板: ';
+  promptLabel.style.marginRight = '10px';
+  promptLabel.style.display = 'block';
+  promptLabel.style.marginTop = '10px';
 
-  settingsSection.append(
-    maxLengthLabel, maxLengthInput,
-    splitPatternLabel, splitPatternSelect,
-    customPatternInput,
-    customTargetLabel, customTargetInput,
-    saveSelectorButton,
-    selectorSuggestions
-  );
+  const promptInput = document.createElement('textarea');
+  promptInput.id = 'prompt-template';
+  promptInput.placeholder = '例如: "请继续分析以下文本:\\n\\n"';
+  promptInput.style.width = '100%';
+  promptInput.style.height = '60px';
+  promptInput.style.marginBottom = '10px';
 
+  // 自动检测按钮
+  const detectButton = document.createElement('button');
+  detectButton.textContent = '自动检测输入框和发送按钮';
+  detectButton.style.width = '100%';
+  detectButton.style.padding = '8px';
+  detectButton.style.backgroundColor = '#9C27B0';
+  detectButton.style.color = 'white';
+  detectButton.style.border = 'none';
+  detectButton.style.borderRadius = '4px';
+  detectButton.style.cursor = 'pointer';
+  detectButton.style.marginBottom = '10px';
+
+  // 保存配置按钮
+  const saveConfigButton = document.createElement('button');
+  saveConfigButton.textContent = '保存当前网站配置';
+  saveConfigButton.style.width = '100%';
+  saveConfigButton.style.padding = '8px';
+  saveConfigButton.style.backgroundColor = '#607D8B';
+  saveConfigButton.style.color = 'white';
+  saveConfigButton.style.border = 'none';
+  saveConfigButton.style.borderRadius = '4px';
+  saveConfigButton.style.cursor = 'pointer';
+  saveConfigButton.style.marginBottom = '10px';
+
+  // 分割按钮
   const segmentButton = document.createElement('button');
   segmentButton.textContent = '开始分割';
   segmentButton.style.width = '100%';
@@ -220,18 +341,20 @@ function initContentScript() {
   segmentButton.style.cursor = 'pointer';
   segmentButton.style.marginBottom = '10px';
 
-  const autoFillButton = document.createElement('button');
-  autoFillButton.textContent = '自动填充下一段';
-  autoFillButton.style.width = '100%';
-  autoFillButton.style.padding = '8px';
-  autoFillButton.style.backgroundColor = '#2196F3';
-  autoFillButton.style.color = 'white';
-  autoFillButton.style.border = 'none';
-  autoFillButton.style.borderRadius = '4px';
-  autoFillButton.style.cursor = 'pointer';
-  autoFillButton.style.marginBottom = '10px';
-  autoFillButton.style.display = 'none';
+  // 自动填充按钮
+  const panelAutoFillButton = document.createElement('button');
+  panelAutoFillButton.textContent = '自动填充下一段';
+  panelAutoFillButton.style.width = '100%';
+  panelAutoFillButton.style.padding = '8px';
+  panelAutoFillButton.style.backgroundColor = '#2196F3';
+  panelAutoFillButton.style.color = 'white';
+  panelAutoFillButton.style.border = 'none';
+  panelAutoFillButton.style.borderRadius = '4px';
+  panelAutoFillButton.style.cursor = 'pointer';
+  panelAutoFillButton.style.marginBottom = '10px';
+  panelAutoFillButton.style.display = 'none';
 
+  // 复制按钮
   const copyNextButton = document.createElement('button');
   copyNextButton.textContent = '复制下一段';
   copyNextButton.style.width = '100%';
@@ -244,6 +367,20 @@ function initContentScript() {
   copyNextButton.style.marginBottom = '10px';
   copyNextButton.style.display = 'none';
 
+  // 定时发送按钮
+  const autoSendPanelButton = document.createElement('button');
+  autoSendPanelButton.textContent = '定时自动发送';
+  autoSendPanelButton.style.width = '100%';
+  autoSendPanelButton.style.padding = '8px';
+  autoSendPanelButton.style.backgroundColor = '#FF5722';
+  autoSendPanelButton.style.color = 'white';
+  autoSendPanelButton.style.border = 'none';
+  autoSendPanelButton.style.borderRadius = '4px';
+  autoSendPanelButton.style.cursor = 'pointer';
+  autoSendPanelButton.style.marginBottom = '10px';
+  autoSendPanelButton.style.display = 'none';
+
+  // 段落列表
   const segmentList = document.createElement('div');
   segmentList.style.maxHeight = '200px';
   segmentList.style.overflowY = 'auto';
@@ -251,56 +388,84 @@ function initContentScript() {
   segmentList.style.borderRadius = '4px';
   segmentList.style.padding = '5px';
 
+  // 添加到面板
   panel.append(
     title,
+    promptLabel,
+    promptInput,
     inputTextarea,
     settingsSection,
+    autoSendLabel,
+    autoSendInput,
+    detectButton,
+    saveConfigButton,
     segmentButton,
-    autoFillButton,
+    panelAutoFillButton,
     copyNextButton,
+    autoSendPanelButton,
     segmentList
   );
 
-  toggleButton.addEventListener('click', () => {
+  // 主按钮点击事件
+  mainButton.addEventListener('click', () => {
     panel.style.display = panel.style.display === 'none' ? 'block' : 'none';
   });
 
-  // 选择器建议点击事件
-  selectorSuggestions.querySelectorAll('.selector-suggestion').forEach(btn => {
-    btn.addEventListener('click', () => {
-      customTargetInput.value = btn.dataset.selector;
-    });
-  });
+  // 自动检测功能
+  detectButton.addEventListener('click', () => {
+    // 检测输入框
+    const inputElements = [
+      ...document.querySelectorAll('textarea'),
+      ...document.querySelectorAll('[contenteditable="true"]'),
+      ...document.querySelectorAll('input[type="text"]')
+    ].filter(el => el.offsetWidth > 0 && el.offsetHeight > 0);
 
-  // 保存选择器功能
-  saveSelectorButton.addEventListener('click', () => {
-    const selector = customTargetInput.value.trim();
-    if (!selector) {
-      alert('请输入有效的选择器');
-      return;
-    }
-    
-    // 测试选择器是否有效
-    const elements = document.querySelectorAll(selector);
-    if (elements.length === 0) {
-      alert('未找到匹配的元素，请检查选择器');
-      return;
-    }
-    
-    // 保存到storage
-    chrome.storage.sync.get(['savedSelectors'], (result) => {
-      const savedSelectors = result.savedSelectors || [];
-      if (!savedSelectors.includes(selector)) {
-        savedSelectors.push(selector);
-        chrome.storage.sync.set({ savedSelectors }, () => {
-          alert(`选择器 "${selector}" 已保存`);
-        });
+    if (inputElements.length > 0) {
+      const bestInput = inputElements[0];
+      customTargetInput.value = getBestSelector(bestInput);
+      
+      // 检测发送按钮
+      const sendButtons = [
+        ...document.querySelectorAll('button'),
+        ...document.querySelectorAll('[role="button"]')
+      ].filter(btn => {
+        const text = (btn.textContent || btn.innerText || '').toLowerCase();
+        return /发送|submit|send|enter|go/i.test(text);
+      });
+
+      if (sendButtons.length > 0) {
+        alert(`检测到输入框: ${customTargetInput.value}\n发送按钮: ${getBestSelector(sendButtons[0])}`);
       } else {
-        alert('该选择器已保存');
+        alert(`检测到输入框: ${customTargetInput.value}\n未检测到发送按钮`);
       }
+    } else {
+      alert('未检测到输入框');
+    }
+  });
+
+  // 保存配置功能
+  saveConfigButton.addEventListener('click', () => {
+    const config = {
+      inputSelector: customTargetInput.value.trim(),
+      splitPattern: splitPatternSelect.value === 'custom' 
+        ? customPatternInput.value 
+        : splitPatternSelect.value,
+      maxLength: parseInt(maxLengthInput.value) || 2000,
+      promptTemplate: promptInput.value.trim(),
+      autoSendInterval: parseInt(autoSendInput.value) || 3000
+    };
+
+    chrome.storage.sync.get(['siteSettings'], (result) => {
+      const siteSettings = result.siteSettings || {};
+      siteSettings[currentHostname] = config;
+      
+      chrome.storage.sync.set({ siteSettings }, () => {
+        alert(`${currentHostname} 的配置已保存`);
+      });
     });
   });
 
+  // 分割按钮点击事件
   segmentButton.addEventListener('click', () => {
     const text = inputTextarea.value;
     if (!text.trim()) {
@@ -327,13 +492,22 @@ function initContentScript() {
       splitPattern: new RegExp(splitPattern)
     });
 
+    // 设置提示词模板
+    if (promptInput.value.trim()) {
+      segmenter.setPromptTemplate(promptInput.value.trim());
+    }
+
     segmentList.innerHTML = '';
     const segments = segmenter.getAllSegments();
     
     if (segments.length === 0) {
       segmentList.innerHTML = '<p>没有可分割的段落</p>';
-      autoFillButton.style.display = 'none';
+      panelAutoFillButton.style.display = 'none';
       copyNextButton.style.display = 'none';
+      autoFillButton.style.display = 'none';
+      copyButton.style.display = 'none';
+      autoSendButton.style.display = 'none';
+      autoSendPanelButton.style.display = 'none';
       return;
     }
 
@@ -369,111 +543,79 @@ function initContentScript() {
       segmentList.appendChild(segmentItem);
     });
 
-    autoFillButton.style.display = 'block';
+    panelAutoFillButton.style.display = 'block';
     copyNextButton.style.display = 'block';
+    autoFillButton.style.display = 'block';
+    copyButton.style.display = 'block';
+    autoSendButton.style.display = 'block';
+    autoSendPanelButton.style.display = 'block';
   });
 
   // 自动填充功能
-  autoFillButton.addEventListener('click', () => {
-    const segment = segmenter.getNextSegment();
+  const fillNextSegment = () => {
+    const segment = promptInput.value.trim() 
+      ? segmenter.getNextSegmentWithPrompt()
+      : segmenter.getNextSegment();
+      
     if (!segment) {
       alert('所有段落已填充完毕');
-      autoFillButton.style.display = 'none';
+      panelAutoFillButton.style.display = 'none';
       copyNextButton.style.display = 'none';
-      return;
+      autoFillButton.style.display = 'none';
+      copyButton.style.display = 'none';
+      autoSendButton.style.display = 'none';
+      autoSendPanelButton.style.display = 'none';
+      segmenter.stopAutoSend();
+      return false;
     }
 
     const targetSelector = customTargetInput.value.trim();
-    let targetElement = null;
-
-    // 1. 优先使用用户指定的选择器
-    if (targetSelector) {
-      targetElement = document.querySelector(targetSelector);
-      if (!targetElement) {
-        console.warn(`未找到匹配 ${targetSelector} 的元素`);
-      }
-    }
-
-    // 2. 如果没找到，尝试自动检测
-    if (!targetElement) {
-      const activeElement = document.activeElement;
-      const isTextarea = activeElement.tagName === 'TEXTAREA';
-      const isContentEditable = activeElement.isContentEditable;
-      
-      if (isTextarea || isContentEditable) {
-        targetElement = activeElement;
-      } else {
-        // 通用输入框检测
-        const textareas = document.querySelectorAll('textarea');
-        const contentEditables = document.querySelectorAll('[contenteditable="true"]');
-        
-        if (textareas.length > 0) {
-          targetElement = textareas[textareas.length - 1]; // 通常最后一个是最新的
-        } else if (contentEditables.length > 0) {
-          targetElement = contentEditables[contentEditables.length - 1];
-        }
-      }
-    }
+    let targetElement = findTargetElement(targetSelector);
 
     if (targetElement) {
-      // 更健壮的填充方式
       try {
-        if (targetElement.tagName === 'TEXTAREA') {
-          targetElement.value = segment.content;
-          targetElement.dispatchEvent(new Event('input', { bubbles: true }));
-          targetElement.dispatchEvent(new Event('change', { bubbles: true }));
-        } else if (targetElement.isContentEditable) {
-          targetElement.innerHTML = segment.content;
-          targetElement.dispatchEvent(new Event('input', { bubbles: true }));
-        } else {
-          targetElement.value = segment.content;
-          targetElement.dispatchEvent(new Event('input', { bubbles: true }));
+        fillTargetElement(targetElement, segment.content);
+        
+        // 尝试找到并点击发送按钮
+        const sendButton = findSendButton();
+        if (sendButton) {
+          setTimeout(() => sendButton.click(), 300);
         }
-        
-        // 滚动到输入框
-        targetElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
-        
-        // 尝试找到发送按钮并点击
-        const sendButtons = [
-          ...document.querySelectorAll('button'),
-          ...document.querySelectorAll('[role="button"]')
-        ].filter(btn => {
-          const text = btn.textContent || btn.innerText || btn.getAttribute('aria-label') || '';
-          return /发送|提交|Submit|Send/i.test(text);
-        });
-        
-        if (sendButtons.length > 0) {
-          setTimeout(() => {
-            sendButtons[0].focus();
-            sendButtons[0].click();
-          }, 300);
-        }
+        return true;
       } catch (e) {
         console.error('填充失败:', e);
-        alert('填充失败，请检查控制台');
+        alert(`填充失败: ${e.message}`);
+        return false;
       }
     } else {
       alert('未找到可用的输入框，请手动指定选择器');
+      return false;
     }
-  });
+  };
 
-  // 复制下一段功能
-  copyNextButton.addEventListener('click', () => {
-    const segment = segmenter.getNextSegment();
+  panelAutoFillButton.addEventListener('click', fillNextSegment);
+  autoFillButton.addEventListener('click', fillNextSegment);
+
+  // 复制功能
+  const copyNextSegment = () => {
+    const segment = promptInput.value.trim() 
+      ? segmenter.getNextSegmentWithPrompt()
+      : segmenter.getNextSegment();
+      
     if (!segment) {
       alert('所有段落已复制完毕');
       copyNextButton.style.display = 'none';
+      copyButton.style.display = 'none';
       return;
     }
 
-    navigator.clipboard.writeText(segment.content)
+    copyToClipboard(segment.content)
       .then(() => {
-        const originalText = copyNextButton.textContent;
         copyNextButton.textContent = '已复制!';
         copyNextButton.style.backgroundColor = '#4CAF50';
         
         setTimeout(() => {
-          copyNextButton.textContent = originalText;
+          copyNextButton.textContent = '复制下一段';
           copyNextButton.style.backgroundColor = '#FF9800';
         }, 1000);
       })
@@ -481,18 +623,136 @@ function initContentScript() {
         console.error('复制失败:', err);
         alert('复制失败，请检查控制台');
       });
-  });
+  };
 
-  // 加载保存的选择器
-  chrome.storage.sync.get(['savedSelectors'], (result) => {
-    const savedSelectors = result.savedSelectors || [];
-    if (savedSelectors.length > 0) {
-      customTargetInput.value = savedSelectors[0]; // 默认加载第一个保存的选择器
+  copyNextButton.addEventListener('click', copyNextSegment);
+  copyButton.addEventListener('click', copyNextSegment);
+
+  // 定时发送功能
+  const toggleAutoSend = () => {
+    if (segmenter.autoSendInterval) {
+      segmenter.stopAutoSend();
+      autoSendPanelButton.textContent = '定时自动发送';
+      autoSendPanelButton.style.backgroundColor = '#FF5722';
+      autoSendButton.innerHTML = '⏱️';
+      autoSendButton.style.backgroundColor = '#FF9800';
+    } else {
+      const interval = parseInt(autoSendInput.value) || 3000;
+      segmenter.startAutoSend(fillNextSegment, interval);
+      autoSendPanelButton.textContent = '停止定时发送';
+      autoSendPanelButton.style.backgroundColor = '#f44336';
+      autoSendButton.innerHTML = '⏹️';
+      autoSendButton.style.backgroundColor = '#f44336';
     }
+  };
+
+  autoSendPanelButton.addEventListener('click', toggleAutoSend);
+  autoSendButton.addEventListener('click', toggleAutoSend);
+
+  // 加载保存的网站配置
+  if (settings.siteSettings?.[currentHostname]) {
+    const siteConfig = settings.siteSettings[currentHostname];
+    
+    if (siteConfig.inputSelector) {
+      customTargetInput.value = siteConfig.inputSelector;
+    }
+    if (siteConfig.maxLength) {
+      maxLengthInput.value = siteConfig.maxLength;
+    }
+    if (siteConfig.splitPattern) {
+      if (['[。！？\\n]', '[。\\n]', '[\\n]'].includes(siteConfig.splitPattern)) {
+        splitPatternSelect.value = siteConfig.splitPattern;
+      } else {
+        splitPatternSelect.value = 'custom';
+        customPatternInput.value = siteConfig.splitPattern;
+        customPatternInput.style.display = 'block';
+      }
+    }
+    if (siteConfig.promptTemplate) {
+      promptInput.value = siteConfig.promptTemplate;
+    }
+    if (siteConfig.autoSendInterval) {
+      autoSendInput.value = siteConfig.autoSendInterval;
+    }
+  }
+}
+
+// 辅助函数：查找目标元素
+function findTargetElement(selector) {
+  if (!selector) return null;
+  
+  // 尝试多个选择器
+  const selectors = selector.split(',').map(s => s.trim());
+  for (const sel of selectors) {
+    const element = document.querySelector(sel);
+    if (element) return element;
+  }
+  
+  // 尝试自动检测
+  const activeElement = document.activeElement;
+  if (activeElement.tagName === 'TEXTAREA' || activeElement.isContentEditable) {
+    return activeElement;
+  }
+  
+  // 检测所有可能的输入元素
+  const inputElements = [
+    ...document.querySelectorAll('textarea'),
+    ...document.querySelectorAll('[contenteditable="true"]')
+  ];
+  
+  return inputElements.length > 0 ? inputElements[0] : null;
+}
+
+// 辅助函数：填充目标元素
+function fillTargetElement(element, content) {
+  if (element.tagName === 'TEXTAREA' || element.tagName === 'INPUT') {
+    element.value = content;
+    element.dispatchEvent(new Event('input', { bubbles: true }));
+    element.dispatchEvent(new Event('change', { bubbles: true }));
+  } else if (element.isContentEditable) {
+    element.innerHTML = content;
+    element.dispatchEvent(new Event('input', { bubbles: true }));
+  } else {
+    throw new Error('不支持的元素类型');
+  }
+  
+  element.scrollIntoView({ behavior: 'smooth', block: 'center' });
+}
+
+// 辅助函数：查找发送按钮
+function findSendButton() {
+  const buttons = [
+    ...document.querySelectorAll('button'),
+    ...document.querySelectorAll('[role="button"]')
+  ];
+  
+  return buttons.find(btn => {
+    const text = (btn.textContent || btn.innerText || btn.getAttribute('aria-label') || '').toLowerCase();
+    return /发送|submit|send|enter|go/i.test(text);
   });
 }
 
-// 等待页面加载完成后初始化
+// 辅助函数：复制到剪贴板
+function copyToClipboard(text) {
+  return navigator.clipboard.writeText(text);
+}
+
+// 辅助函数：获取最佳选择器
+function getBestSelector(element) {
+  if (element.id) return `#${element.id}`;
+  
+  const classes = Array.from(element.classList)
+    .filter(c => !c.startsWith('js-') && c.length < 20)
+    .map(c => `.${c}`);
+  
+  if (classes.length > 0) {
+    return `${element.tagName.toLowerCase()}${classes[0]}`;
+  }
+  
+  return element.tagName.toLowerCase();
+}
+
+// 初始化
 if (document.readyState === 'loading') {
   document.addEventListener('DOMContentLoaded', initContentScript);
 } else {

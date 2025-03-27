@@ -95,6 +95,104 @@ document.addEventListener('DOMContentLoaded', function() {
         statusMessage.textContent = '';
         statusMessage.style.color = '#666';
       }, 2000);
+      
+      // 通知内容脚本设置已更新
+      chrome.tabs.query({active: true, currentWindow: true}, function(tabs) {
+        chrome.tabs.sendMessage(tabs[0].id, {action: 'settingsUpdated', settings: settings});
+      });
     });
   });
+
+  // 添加网站管理部分
+  const manageSection = document.createElement('div');
+  manageSection.className = 'settings-group';
+  manageSection.innerHTML = `
+    <h3>网站管理</h3>
+    <div class="setting-item">
+      <label for="new-website">添加新网站:</label>
+      <input type="text" id="new-website" placeholder="例如: example.com" style="width: 100%; margin-bottom: 5px;">
+      <div style="display: flex; gap: 5px;">
+        <input type="text" id="new-input-selector" placeholder="输入框选择器" style="flex: 1;">
+        <input type="text" id="new-submit-selector" placeholder="发送按钮选择器" style="flex: 1;">
+      </div>
+      <button id="add-website" style="width: 100%; margin-top: 5px; padding: 5px; background: #2196F3;">添加网站</button>
+    </div>
+    <div id="website-list" style="margin-top: 10px;"></div>
+  `;
+  
+  siteSettingsContainer.after(manageSection);
+  
+  // 加载网站列表
+  function loadWebsiteList() {
+    chrome.storage.sync.get(['websiteConfigs'], function(result) {
+      const configs = result.websiteConfigs || {};
+      const websiteList = document.getElementById('website-list');
+      
+      if (Object.keys(configs).length === 0) {
+        websiteList.innerHTML = '<p>暂无保存的网站配置</p>';
+        return;
+      }
+      
+      websiteList.innerHTML = `
+        <div style="font-size: 12px; color: #666; margin-bottom: 5px;">已配置网站:</div>
+        <ul style="list-style: none; padding: 0; margin: 0; max-height: 200px; overflow-y: auto;">
+          ${Object.entries(configs).map(([hostname, config]) => `
+            <li style="padding: 5px; border-bottom: 1px solid #eee; display: flex; justify-content: space-between;">
+              <div style="flex: 1;">
+                <div style="font-weight: bold;">${hostname}</div>
+                <div style="font-size: 11px; color: #666;">
+                  输入框: ${config.inputSelector || '未设置'}<br>
+                  发送按钮: ${config.submitSelector || '未设置'}
+                </div>
+              </div>
+              <button class="remove-website" data-hostname="${hostname}" style="background: #f44336; color: white; border: none; border-radius: 3px; padding: 2px 5px; font-size: 11px; cursor: pointer;">删除</button>
+            </li>
+          `).join('')}
+        </ul>
+      `;
+      
+      // 添加删除事件
+      document.querySelectorAll('.remove-website').forEach(btn => {
+        btn.addEventListener('click', function() {
+          const hostname = this.dataset.hostname;
+          delete configs[hostname];
+          chrome.storage.sync.set({ websiteConfigs: configs }, loadWebsiteList);
+        });
+      });
+    });
+  }
+  
+  // 添加新网站
+  document.getElementById('add-website').addEventListener('click', function() {
+    const hostname = document.getElementById('new-website').value.trim();
+    const inputSelector = document.getElementById('new-input-selector').value.trim();
+    const submitSelector = document.getElementById('new-submit-selector').value.trim();
+    
+    if (!hostname) {
+      statusMessage.textContent = '请输入网站域名';
+      statusMessage.style.color = '#f44336';
+      setTimeout(() => statusMessage.textContent = '', 2000);
+      return;
+    }
+    
+    chrome.storage.sync.get(['websiteConfigs'], function(result) {
+      const configs = result.websiteConfigs || {};
+      configs[hostname] = {
+        inputSelector,
+        submitSelector
+      };
+      
+      chrome.storage.sync.set({ websiteConfigs: configs }, function() {
+        document.getElementById('new-website').value = '';
+        document.getElementById('new-input-selector').value = '';
+        document.getElementById('new-submit-selector').value = '';
+        statusMessage.textContent = '网站配置已添加';
+        statusMessage.style.color = '#4CAF50';
+        setTimeout(() => statusMessage.textContent = '', 2000);
+        loadWebsiteList();
+      });
+    });
+  });
+  
+  loadWebsiteList();
 });
